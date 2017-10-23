@@ -29,7 +29,7 @@ class IKSolver extends Application {
   val H = 900
   val W = 900
   val oX = 50
-  val oY = 50
+  val oY = 450
 
   var q = DenseVector[Double](0, 0, 1)
   val lengths = List(398, 224, 158.0)
@@ -46,7 +46,7 @@ class IKSolver extends Application {
     val gc = canvas.getGraphicsContext2D
 
     gc.setLineWidth(2)
-    var target = DenseVector[Double](100.0, 100.0, 1)
+    var target = DenseVector[Double](100.0, -100.0, 1)
 
     canvas.setOnMouseClicked(new EventHandler[MouseEvent] {
       override def handle(e: MouseEvent) {
@@ -70,15 +70,17 @@ class IKSolver extends Application {
       override def handle(now: Long) {
         gc.setFill(Color.color(1, 1, 1, .1))
         gc.fillRect(0, 0, W, H)
+        gc.setFill(Color.color(.5, .5, .5, 1))
+        gc.fillRect(0, oY+20, W, H )
         //        for (i <- 1 until 10) {
         //          gc.setFill(Color.color(0, 0, 0, .1))
         //          gc.fillRect(0, 0, 900, 900)
 
-        q = q +.1* pinv(jacobian(lengths, q)) * (target - fk(lengths, q, gc))
-        //        q(0) = clamp(q(0), -Pi / 2, Pi / 20) % Pi
-        //        q(1) = clamp(q(1), -Pi / 2, Pi / 20) % Pi
-                q(0) = q(0) % (2*Pi)
-                q(1) = q(1) % (2*Pi)
+        q = q + .1 * pinv(jacobian(lengths, q)) * (target - fk(lengths, q, gc))
+//        q(0) = clamp(q(0), -Pi / 2, Pi / 20)
+//        q(1) = clamp(q(1), -Pi / 2, Pi / 20)
+                        q(0) = q(0) % (2*Pi)
+                        q(1) = q(1) % (2*Pi)
         q(2) = q(1) * 2 / 3.0
         //        }
         gc.setFill(Color.color(0, 0, 0, 1))
@@ -108,6 +110,7 @@ class IKSolver extends Application {
 
       val v1Screen = worldToScreen(v1(0), v1(1))
       val v2Screen = worldToScreen(v2(0), v2(1))
+      gc.setStroke(Color.RED)
       gc.strokeLine(v1Screen._1, v1Screen._2, v2Screen._1, v2Screen._2)
       v1 = v2
     }
