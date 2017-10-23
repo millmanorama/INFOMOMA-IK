@@ -2,22 +2,20 @@
 import breeze.linalg._
 import breeze.numerics._
 import breeze.numerics.constants._
+
 import javafx.animation.AnimationTimer
 import javafx.application.Application
 
-import javafx.scene.layout.VBox
-import javafx.scene.paint.Color
-
-import javafx.application.Application
 import javafx.event.ActionEvent
-
 import javafx.event.EventHandler
+
+import javafx.scene.paint.Color
 import javafx.scene.Scene
 import javafx.scene.canvas.Canvas
 import javafx.scene.canvas.GraphicsContext
-import javafx.scene.control.Button
 import javafx.scene.input.MouseEvent
 import javafx.scene.layout.StackPane
+import javafx.scene.layout.VBox
 import javafx.stage.Stage
 
 object IKSolver {
@@ -53,19 +51,12 @@ class IKSolver extends Application {
       override def handle(e: MouseEvent) {
         val worldMouse = screenToWorld(e.getX, e.getY)
         target = DenseVector[Double](worldMouse._1, worldMouse._2, 1)
-        println(target)
       }
     })
 
     root.getChildren.add(canvas)
     primaryStage.setScene(new Scene(root, W, H))
     primaryStage.show
-
-    //    val tip1 = fk(lengths, thetas, gc)
-    //    gc.setStroke(Color.BLUE)
-    //    val tip2 = fk(lengths, thetas2, gc, 0)
-
-    //    println(tip1 - tip2)
 
     new AnimationTimer {
       override def handle(now: Long) {
@@ -77,11 +68,15 @@ class IKSolver extends Application {
         val targetDistance = norm(target)
         val length = lengths.reduce(_ + _)
 
+        var threshHold = 1.0
+        if (targetDistance > length) {
+          threshHold = targetDistance - length + threshHold
+        }
         var points = fk(lengths, q)
         var error = (target - points.last)
         var errorMag = norm(error)
         var i = 0
-        while (errorMag > 1) {
+        while (errorMag > threshHold && i < 100) {
           q = q + .1 * pinv(jacobian(lengths, q)) * error
           q(0) = q(0) % (2 * Pi)
           q(1) = q(1) % (2 * Pi)
@@ -99,11 +94,11 @@ class IKSolver extends Application {
 
         val screenTarget = worldToScreen(target(0), target(1))
         gc.fillOval(screenTarget._1 - 5, screenTarget._2 - 5, 10.0, 10.0)
-
-        gc.fillText("?s: " + q(0) + ",  " + q(1), 20, 20)
-        gc.fillText("itration: " + i, 20, 40)
-        gc.fillText("errorMag:" + errorMag, 20, 60)
-        println(q)
+        if (i > 0) {
+          println("itration: " + i)
+          println("errorMag: " + errorMag)
+          println(q)
+        }
       }
     }.start
   }
