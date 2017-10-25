@@ -112,7 +112,6 @@ class IKSolver extends Application {
   }
 
   def drawReachability() {
-
     var bi: BufferedImage = new BufferedImage(W, H, BufferedImage.TYPE_3BYTE_BGR)
     val big = bi.createGraphics
     for (x <- 0 until W) {
