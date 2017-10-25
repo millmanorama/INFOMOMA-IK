@@ -3,6 +3,10 @@ import breeze.linalg._
 import breeze.numerics._
 import breeze.numerics.constants._
 
+import javax.imageio.ImageIO
+
+import java.awt.image.BufferedImage
+import java.io.File
 import javafx.animation.AnimationTimer
 import javafx.application.Application
 
@@ -30,7 +34,7 @@ class IKSolver extends Application {
   val oX = 50
   val oY = 450
 
-  var q = DenseVector[Double](0, 0, 1)
+  val initialQ = DenseVector[Double](0, 0, 0)
   val lengths = List(398, 224, 158.0)
   val thetas = DenseVector[Double](0, 22, -63).map(_ * Pi / 180)
   val thetas2 = DenseVector[Double](15.05, -20, -37).map(_ * Pi / 180)
@@ -45,64 +49,89 @@ class IKSolver extends Application {
     val gc = canvas.getGraphicsContext2D
 
     gc.setLineWidth(2)
-    var target = DenseVector[Double](100.0, -100.0, 1)
+    var target = DenseVector[Double](100.0, 100.0, 1)
 
-    canvas.setOnMouseClicked(new EventHandler[MouseEvent] {
+    println(fk(lengths, thetas).last)
+    println(fk(lengths, thetas2).last)
+
+    drawReachability
+
+    var q = initialQ
+    canvas.setOnMouseDragged(new EventHandler[MouseEvent] {
       override def handle(e: MouseEvent) {
         val worldMouse = screenToWorld(e.getX, e.getY)
         target = DenseVector[Double](worldMouse._1, worldMouse._2, 1)
-      }
-    })
-
-    root.getChildren.add(canvas)
-    primaryStage.setScene(new Scene(root, W, H))
-    primaryStage.show
-
-    new AnimationTimer {
-      override def handle(now: Long) {
-        gc.setFill(Color.color(1, 1, 1, .1))
+        gc.setFill(Color.color(1, 1, 1, 1))
         gc.fillRect(0, 0, W, H)
         gc.setFill(Color.color(.5, .5, .5, 1))
         gc.fillRect(0, oY + 20, W, H)
-
-        val targetDistance = norm(target)
-        val length = lengths.reduce(_ + _)
-
-        var threshHold = 1.0
-        if (targetDistance > length) {
-          threshHold = targetDistance - length + threshHold
-        }
-        var points = fk(lengths, q)
-        var error = (target - points.last)
-        var errorMag = norm(error)
-        var i = 0
-        while (errorMag > threshHold && i < 100) {
-          q = q + .1 * pinv(jacobian(lengths, q)) * error
-          q(0) = q(0) % (2 * Pi)
-          q(1) = q(1) % (2 * Pi)
-          q(2) = q(1) * 2 / 3.0
-
-          points = fk(lengths, q)
-          error = (target - points.last)
-          errorMag = norm(error)
-
-          i = i + 1
-        }
-
+        val (points, q2, errorMag, i) = ik(q, target, 100)
+        q = q2
         draw(points, gc)
         gc.setFill(Color.color(0, 0, 0, 1))
 
         val screenTarget = worldToScreen(target(0), target(1))
         gc.fillOval(screenTarget._1 - 5, screenTarget._2 - 5, 10.0, 10.0)
-        if (i > 0) {
-          println("itration: " + i)
-          println("errorMag: " + errorMag)
-          println(q)
-        }
       }
-    }.start
+    })
+
+
+    root.getChildren.add(canvas)
+    primaryStage.setScene(new Scene(root, W, H))
+    primaryStage.show
+
   }
 
+  def ik(initialQ: DenseVector[Double], target: DenseVector[Double], maxIterations: Integer): (List[DenseVector[Double]], DenseVector[Double], Double, Integer) = {
+    var q = initialQ
+
+    val targetDistance = norm(target)
+    val length = lengths.reduce(_ + _)
+    var threshHold = 1.0
+    if (targetDistance > length) {
+      threshHold = targetDistance - length + threshHold
+    }
+    var points = fk(lengths, q)
+    var error = (target - points.last)
+    var errorMag = norm(error)
+    var i = 0
+
+    while (errorMag > threshHold & i < maxIterations) {
+      q = q + .1 * pinv(jacobian(lengths, q)) * error
+      q(0) = clamp(q(0), -Pi / 3, Pi / 3)
+      q(1) = clamp(q(1), -2 * Pi / 3, 0)
+      q(2) = q(1) * 2 / 3.0
+
+      points = fk(lengths, q)
+      error = (target - points.last)
+      errorMag = norm(error)
+
+      i = i + 1
+    }
+    return (points, q, errorMag, i)
+  }
+
+  def drawReachability() {
+
+    var bi: BufferedImage = new BufferedImage(W, H, BufferedImage.TYPE_3BYTE_BGR)
+    val big = bi.createGraphics
+    for (x <- 0 until W) {
+      for (y <- 0 until H) {
+        var (wX, wY) = screenToWorld(x, y)
+        val target = DenseVector[Double](wX, wY, 1)
+
+        val (points, q, errorMag, i) = ik(initialQ, target, 256)
+        if (errorMag <= 1.0) {
+          big.setPaint(java.awt.Color.WHITE)
+          big.fillRect(x, y, 1, 1)
+        } 
+        if (x % 10 == 0 & y % 10 == 0)
+          println(x, y)
+      }
+    }
+    ImageIO.write(bi, "png", new File("reachable.png"))
+
+  }
   def clamp(x: Double, min: Double, max: Double): Double = {
     return Math.min(Math.max(min, x), max)
   }
@@ -161,11 +190,18 @@ class IKSolver extends Application {
     ))
   }
 
-  def jacobian(ls: List[Double], q: DenseVector[Double]): DenseMatrix[Double] = {
-    val ldi = ls(2) + ls(1)
+  def jacobian(l: List[Double], q: DenseVector[Double]): DenseMatrix[Double] = {
+    val thetaSum = q(0) + (5 / 3.0) * q(1)
+    val l2cosThetaSum = l(2) * cos(thetaSum)
+    val l2sinThetaSum = l(2) * sin(thetaSum)
+
+    val thetaSum2 = q(0) + q(1)
+    val l1cosThetaSum2 = l(1) * cos(thetaSum2)
+    val l1sinThetaSum2 = l(1) * sin(thetaSum2)
+
     DenseMatrix.create(3, 3, Array(
-      -ldi * sin(q(0)), ldi * cos(q(0)), 0,
-      -ls(2) * sin(q(1)), ls(2) * cos(q(1)), 0,
+      -l2sinThetaSum - l1sinThetaSum2 - l(0) * sin(q(0)), l2cosThetaSum + l1cosThetaSum2 + l(0) * cos(q(0)), 0,
+      -(5 / 3.0) * l2sinThetaSum - l1sinThetaSum2, (5 / 3.0) * l2cosThetaSum + l1cosThetaSum2, 0,
       0, 0, 0
     ))
   }
